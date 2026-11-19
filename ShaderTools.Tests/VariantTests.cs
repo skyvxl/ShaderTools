@@ -14,6 +14,20 @@ public sealed class VariantTests : IDisposable
     }
 
     [Fact]
+    public void NestedShaderUsesItsProjectCatalogWhenTheParentFolderIsOpen()
+    {
+        var project = Directory.CreateDirectory(Path.Combine(_root, "BasicShaders")).FullName;
+        string file = Path.Combine(project, "shaders", "triangle.frag");
+        File.WriteAllText(Path.Combine(project, ShaderConfiguration.FileName), "{}");
+        string catalog = Path.Combine(project, VariantCatalog.FileName);
+        Assert.Equal(catalog, VariantCatalog.FindProjectCatalog(_root, file));
+        File.WriteAllText(catalog, """[{"name":"Warm","file":"shaders/triangle.frag","entryPoint":"main","defines":{"WARM":"1"}}]""");
+        File.WriteAllText(Path.Combine(_root, VariantCatalog.FileName), "[]");
+        Assert.Equal(catalog, VariantCatalog.FindProjectCatalog(_root, file));
+        Assert.Equal(file, Assert.Single(VariantCatalog.Load(catalog, project)).FilePath);
+    }
+
+    [Fact]
     public void MissingCatalogReturnsEmptyCollection()
     {
         Assert.Empty(VariantCatalog.Load(Path.Combine(_root, "missing.json"), _root));

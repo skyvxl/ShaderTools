@@ -70,20 +70,22 @@ namespace ShaderTools.VisualStudio.Commands
                 throw new InvalidOperationException("Open a solution, folder or saved shader first.");
             }
 
-            string path = Path.Combine(root, variants ? ".shader-variants.json" : ShaderConfiguration.FileName);
+            string active = await WorkspaceContext.GetActiveFileAsync();
+            if (ShaderContentTypes.ForPath(active ?? "") == null) { active = null; }
+            string path = variants ? VariantCatalog.FindProjectCatalog(root, active) :
+                active == null ? Path.Combine(root, ShaderConfiguration.FileName) : ShaderConfiguration.FindConfigurationPath(root, active);
             if (!File.Exists(path))
             {
                 string text;
                 if (variants)
                 {
-                    string active = await WorkspaceContext.GetActiveFileAsync();
                     JArray entries = [];
                     if (!string.IsNullOrEmpty(active) && ShaderContentTypes.ForPath(active) != null)
                     {
                         entries.Add(new JObject
                         {
                             ["name"] = "Default",
-                            ["file"] = Uri.UnescapeDataString(new Uri(root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(active)).ToString()),
+                            ["file"] = Uri.UnescapeDataString(new Uri(Path.GetDirectoryName(path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar).MakeRelativeUri(new Uri(active)).ToString()),
                             ["entryPoint"] = "main",
                             ["stage"] = "auto",
                             ["defines"] = new JObject(),

@@ -1,6 +1,3 @@
-using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
-using ShaderTools.Core;
 using ShaderTools.Core.Configuration;
 using ShaderTools.Core.Protocol;
 using System;
@@ -17,6 +14,7 @@ namespace ShaderTools.Bridge
     {
         private static int Main(string[] args)
         {
+            Console.SetError(new StreamWriter(Console.OpenStandardError(), new System.Text.UTF8Encoding(false)) { AutoFlush = true });
             try { return RunAsync(args).GetAwaiter().GetResult(); }
             catch (Exception ex) { Log("Cannot run shader server: " + ex.Message); return 1; }
         }
@@ -41,79 +39,37 @@ namespace ShaderTools.Bridge
             _=arguments.TryGetValue("--workspace", out string root);
             _=arguments.TryGetValue("--settings", out string settingsPath);
             string configurationRoot = string.IsNullOrWhiteSpace(root) ? Environment.CurrentDirectory : Path.GetFullPath(root);
-            object settingsGate = new object();
-            // Last known good settings remain active during partial saves or invalid edits.
-            JObject currentSettings = ShaderConfiguration.Load(configurationRoot, settingsPath).Settings;
-            ProtocolAdapter adapter = new ProtocolAdapter(root, workspace =>
+            ShaderConfigurationStore configurations = new ShaderConfigurationStore(settingsPath, Log);
+            arguments.TryGetValue("--format-directory", out string formatDirectory);
+            // Framework Process constructs its redirected stdin writer with Console.InputEncoding.
+            // A preamble would precede the first Content-Length header sent to each compiler.
+            if (Console.InputEncoding.GetPreamble().Length != 0)
             {
-                lock (settingsGate)
-                {
-                    try { currentSettings = ShaderConfiguration.Load(string.IsNullOrEmpty(workspace) ? configurationRoot : workspace, settingsPath).Settings; }
-                    catch (Exception ex) when (ex is IOException or JsonException or ArgumentException or UnauthorizedAccessException)
-                    { Log("Settings unchanged: " + ex.Message); }
-                    return (JObject)currentSettings.DeepClone();
-                }
-            }, Log);
-
-            ProcessStartInfo start = new ProcessStartInfo(Path.GetFullPath(server))
-            {
-                Arguments = "--stdio --glsl --hlsl --wgsl --config " + WindowsCommandLine.Quote(currentSettings.ToString(Formatting.None)) +
-                    " --cwd " + WindowsCommandLine.Quote(configurationRoot),
-                WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(server))!,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardInput = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-            if (arguments.TryGetValue("--format-directory", out string formatDirectory) && Directory.Exists(formatDirectory))
-            {
-                start.EnvironmentVariables["PATH"] = formatDirectory + Path.PathSeparator + start.EnvironmentVariables["PATH"];
+                Console.InputEncoding = new System.Text.UTF8Encoding(false);
             }
-
             using ProcessJob job = ProcessJob.CreateKillOnClose();
             using CancellationTokenSource lifetime = new CancellationTokenSource();
-            using Process child = new Process { StartInfo = start };
-            child.ErrorDataReceived += (_, e) => { if (e.Data != null) { Log(e.Data); } };
-            _=child.Start();
-            try
-            {
-                job.Add(child);
-            }
-            catch
-            {
-                if (!child.HasExited)
-                {
-                    child.Kill();
-                }
-
-                throw;
-            }
-            child.BeginErrorReadLine();
-            Log("Started shader-language-server 1.4.3 (PID " + child.Id + "). Workspace: " + configurationRoot);
-            LspRelay relay = new LspRelay(adapter, Log);
+            var documents = new PositionEncodingConverter();
+            using ProjectRouter router = new ProjectRouter(server, configurationRoot, formatDirectory, configurations, documents, job, Log);
+            var adapter = new ProtocolAdapter(root,
+                workspace => configurations.LoadWorkspace(string.IsNullOrEmpty(workspace) ? configurationRoot : workspace).Settings,
+                Log, configurations.LoadDocument, compilationRoot: router.CompilationRoot);
+            var relay = new LspRelay(adapter, Log, positions: documents);
             Task monitor = MonitorParentAsync(arguments, lifetime);
             using Stream input = Console.OpenStandardInput();
             using Stream output = Console.OpenStandardOutput();
             try
             {
-                await relay.RunAsync(input, output, child.StandardInput.BaseStream, child.StandardOutput.BaseStream, lifetime.Token).ConfigureAwait(false);
+                await relay.RunAsync(input, output, router, lifetime.Token).ConfigureAwait(false);
             }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
             finally
             {
                 lifetime.Cancel();
-                // EOF asks the server to exit; enforce a deadline if it is compiling or hung.
-                try { child.StandardInput.Close(); } catch (IOException) { }
-                if (!child.WaitForExit(2000))
-                {
-                    child.Kill();
-                }
-
-                _=child.WaitForExit(2000);
                 await monitor.ConfigureAwait(false);
             }
-            return 0;
+            // A distinct code permits bounded recovery in VS without retrying configuration/startup errors.
+            return relay.RecoveryRequired ? 2 : 0;
         }
 
         private static async Task MonitorParentAsync(Dictionary<string, string> arguments, CancellationTokenSource lifetime)

@@ -166,6 +166,19 @@ try {
         Assert-PackageFile -Root $temporaryDirectory -RelativePath $relativePath
     }
 
+    foreach ($relativePath in $requiredFiles) {
+        if ($relativePath -like 'licenses\*') {
+            $source = Join-Path $repositoryRoot $relativePath
+            if ($relativePath -eq 'licenses\THIRD-PARTY-NOTICES.md') {
+                $source = Join-Path $repositoryRoot 'THIRD-PARTY-NOTICES.md'
+            }
+            $packaged = Join-Path $temporaryDirectory $relativePath
+            if ((Get-FileHash -LiteralPath $source).Hash -ne (Get-FileHash -LiteralPath $packaged).Hash) {
+                throw "Packaged notice '$relativePath' differs from the repository copy."
+            }
+        }
+    }
+
     [xml]$manifest = Get-Content -Raw -LiteralPath (Join-Path $temporaryDirectory 'extension.vsixmanifest')
     $namespaces = [System.Xml.XmlNamespaceManager]::new($manifest.NameTable)
     $namespaces.AddNamespace('v', 'http://schemas.microsoft.com/developer/vsx-schema/2011')
@@ -217,6 +230,17 @@ try {
 
     $bridgePath = Join-Path $temporaryDirectory 'Bridge\ShaderTools.Bridge.exe'
     $serverPath = Join-Path $temporaryDirectory 'Server\shader-language-server.exe'
+    $release = Import-PowerShellDataFile (Join-Path $PSScriptRoot 'server-release.psd1')
+    $serverFiles = @(Get-ChildItem -LiteralPath (Join-Path $temporaryDirectory 'Server') -File -Recurse)
+    if ($serverFiles.Count -ne $release.Files.Count) { throw 'Unexpected files in the packaged server bundle.' }
+    foreach ($entry in $release.Files.GetEnumerator()) {
+        $path = Join-Path $temporaryDirectory ("Server\" + $entry.Key)
+        if ((Get-FileHash -Algorithm SHA256 -LiteralPath $path).Hash -ne $entry.Value) {
+            throw "Packaged $($entry.Key) failed SHA-256 verification against release $($release.Tag)."
+        }
+    }
+    & $node.Source (Join-Path $repositoryRoot 'tests\backend-regression.mjs') --bridge $bridgePath --server $serverPath
+    if ($LASTEXITCODE -ne 0) { throw "Packaged bridge regression failed with exit code $LASTEXITCODE." }
     $smokeArguments = @($smokeTestPath, '--bridge', $bridgePath, '--server', $serverPath)
     $clangFormatDirectory = Find-ClangFormatDirectory
     if ($null -eq $clangFormatDirectory) {

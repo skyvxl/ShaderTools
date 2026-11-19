@@ -8,8 +8,8 @@ using System.Security;
 namespace ShaderTools.Core.Protocol
 {
     /// <summary>
-    /// Adapts Visual Studio's UTF-16 LSP positions to the Unicode-scalar positions used by
-    /// shader-language-server 1.4.3, and converts server results back to UTF-16.
+    /// Adapts Visual Studio's UTF-16 positions to shader-sense. Its text edits use Unicode
+    /// scalars, while the syntax tree's symbol locations and navigation queries use UTF-8 bytes.
     /// </summary>
     public sealed class PositionEncodingConverter
     {
@@ -19,6 +19,30 @@ namespace ShaderTools.Core.Protocol
 
         private readonly object gate = new object();
         private readonly Dictionary<string, string> openDocuments = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, int> documentVersions = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        private long documentGeneration;
+        public long DocumentGeneration { get { lock (gate) { return documentGeneration; } } }
+        public int? GetDocumentVersion(string uri)
+        {
+            lock (gate) { return documentVersions.TryGetValue(NormalizeUri(uri) ?? uri, out int version) ? version : (int?)null; }
+        }
+
+        public IReadOnlyList<ShaderDocumentSnapshot> CaptureOpenDocuments()
+        {
+            lock (gate)
+            {
+                List<ShaderDocumentSnapshot> snapshots = [];
+                foreach (KeyValuePair<string, string> pair in openDocuments)
+                {
+                    if (documentVersions.TryGetValue(pair.Key, out int version))
+                    {
+                        snapshots.Add(new ShaderDocumentSnapshot(pair.Key, pair.Value, version));
+                    }
+                }
+
+                return snapshots;
+            }
+        }
         private readonly Dictionary<string, RequestContext> pendingRequests = new Dictionary<string, RequestContext>(StringComparer.Ordinal);
         private readonly LinkedList<string> pendingOrder = new LinkedList<string>();
         private readonly Dictionary<string, LinkedListNode<string>> pendingNodes = new Dictionary<string, LinkedListNode<string>>(StringComparer.Ordinal);
@@ -51,6 +75,11 @@ namespace ShaderTools.Core.Protocol
                         return;
                     case "textDocument/didClose":
                         ProcessDidClose(message);
+                        return;
+                    case "workspace/didChangeConfiguration":
+                    case "textDocument/didChangeShaderVariant":
+                    case "workspace/didChangeWatchedFiles":
+                        documentGeneration++;
                         return;
                     case "$/cancelRequest":
                         RemovePending(message.SelectToken("params.id"));
@@ -122,6 +151,8 @@ namespace ShaderTools.Core.Protocol
             }
 
             SetOpenDocument(uri, text);
+            documentVersions[uri] = (int?)document?["version"] ?? 0;
+            documentGeneration++;
         }
 
         private void ProcessDidChange(JObject message)
@@ -180,6 +211,8 @@ namespace ShaderTools.Core.Protocol
             if (workingText != null)
             {
                 SetOpenDocument(uri, workingText);
+                documentVersions[uri] = (int?)parameters.SelectToken("textDocument.version") ?? 0;
+                documentGeneration++;
             }
         }
 
@@ -192,6 +225,8 @@ namespace ShaderTools.Core.Protocol
             }
 
             _=openDocuments.Remove(uri);
+            _=documentVersions.Remove(uri);
+            documentGeneration++;
             List<string> removals = [];
             foreach (KeyValuePair<string, RequestContext> pair in pendingRequests)
             {
@@ -216,14 +251,16 @@ namespace ShaderTools.Core.Protocol
 
             switch (method)
             {
-                case "textDocument/completion":
                 case "textDocument/hover":
-                case "textDocument/signatureHelp":
                 case "textDocument/definition":
                 case "textDocument/declaration":
                 case "textDocument/typeDefinition":
                 case "textDocument/implementation":
                 case "textDocument/references":
+                    _=TryConvertPosition(parameters["position"] as JObject, text, toServer: true, utf8Bytes: true);
+                    break;
+                case "textDocument/completion":
+                case "textDocument/signatureHelp":
                 case "textDocument/documentHighlight":
                 case "textDocument/rename":
                 case "textDocument/prepareRename":
@@ -273,7 +310,7 @@ namespace ShaderTools.Core.Protocol
                     ConvertCompletion(result, text);
                     break;
                 case "textDocument/hover":
-                    _=TryConvertRange((result as JObject)?["range"] as JObject, text, toServer: false);
+                    _=TryConvertRange((result as JObject)?["range"] as JObject, text, toServer: false, utf8Bytes: true);
                     break;
                 case "textDocument/foldingRange":
                     ConvertFoldingRanges(result as JArray, text);
@@ -431,7 +468,7 @@ namespace ShaderTools.Core.Protocol
                     continue;
                 }
 
-                _=TryConvertPosition(hint["position"] as JObject, text, toServer: false);
+                _=TryConvertPosition(hint["position"] as JObject, text, toServer: false, utf8Bytes: true);
                 ConvertTextEdits(hint["textEdits"] as JArray, text);
                 if (hint["label"] is JArray labelParts)
                 {
@@ -466,8 +503,8 @@ namespace ShaderTools.Core.Protocol
                 }
                 else if (text != null)
                 {
-                    _=TryConvertRange(symbol["range"] as JObject, text, toServer: false);
-                    _=TryConvertRange(symbol["selectionRange"] as JObject, text, toServer: false);
+                    _=TryConvertRange(symbol["range"] as JObject, text, toServer: false, utf8Bytes: true);
+                    _=TryConvertRange(symbol["selectionRange"] as JObject, text, toServer: false, utf8Bytes: true);
                 }
 
                 ConvertDocumentSymbols(symbol["children"] as JArray, text, context);
@@ -508,21 +545,21 @@ namespace ShaderTools.Core.Protocol
             }
         }
 
-        private void ConvertLocation(JObject location, RequestContext? context, string? sourceText)
+        private void ConvertLocation(JObject location, RequestContext? context, string? sourceText, bool utf8Bytes = true)
         {
             if (location["targetUri"] != null)
             {
-                _=TryConvertRange(location["originSelectionRange"] as JObject, sourceText, toServer: false);
+                _=TryConvertRange(location["originSelectionRange"] as JObject, sourceText, toServer: false, utf8Bytes: utf8Bytes);
                 string? targetUri = (string?)location["targetUri"];
                 string? targetText = GetText(targetUri, context);
-                _=TryConvertRange(location["targetRange"] as JObject, targetText, toServer: false);
-                _=TryConvertRange(location["targetSelectionRange"] as JObject, targetText, toServer: false);
+                _=TryConvertRange(location["targetRange"] as JObject, targetText, toServer: false, utf8Bytes: utf8Bytes);
+                _=TryConvertRange(location["targetSelectionRange"] as JObject, targetText, toServer: false, utf8Bytes: utf8Bytes);
                 return;
             }
 
             string? uri = (string?)location["uri"];
             string? text = GetText(uri, context);
-            _=TryConvertRange(location["range"] as JObject, text, toServer: false);
+            _=TryConvertRange(location["range"] as JObject, text, toServer: false, utf8Bytes: utf8Bytes);
         }
 
         private static void ConvertTextEdits(JArray? edits, string? text)
@@ -686,7 +723,7 @@ namespace ShaderTools.Core.Protocol
                             }
                             else
                             {
-                                ConvertLocation(location, context, text);
+                                ConvertLocation(location, context, text, utf8Bytes: false);
                             }
                         }
                     }
@@ -812,15 +849,15 @@ namespace ShaderTools.Core.Protocol
             return bytes == utf8Length;
         }
 
-        private static bool TryConvertRange(JObject? range, string? text, bool toServer)
+        private static bool TryConvertRange(JObject? range, string? text, bool toServer, bool utf8Bytes = false)
         {
             if (range == null || text == null || range["start"] is not JObject start || range["end"] is not JObject end)
             {
                 return false;
             }
 
-            if (!TryConvertedCharacter(start, text, toServer, out int convertedStart) ||
-                !TryConvertedCharacter(end, text, toServer, out int convertedEnd))
+            if (!TryConvertedCharacter(start, text, toServer, utf8Bytes, out int convertedStart) ||
+                !TryConvertedCharacter(end, text, toServer, utf8Bytes, out int convertedEnd))
             {
                 return false;
             }
@@ -830,9 +867,9 @@ namespace ShaderTools.Core.Protocol
             return true;
         }
 
-        private static bool TryConvertPosition(JObject? position, string? text, bool toServer)
+        private static bool TryConvertPosition(JObject? position, string? text, bool toServer, bool utf8Bytes = false)
         {
-            if (position == null || text == null || !TryConvertedCharacter(position, text, toServer, out int converted))
+            if (position == null || text == null || !TryConvertedCharacter(position, text, toServer, utf8Bytes, out int converted))
             {
                 return false;
             }
@@ -841,7 +878,7 @@ namespace ShaderTools.Core.Protocol
             return true;
         }
 
-        private static bool TryConvertedCharacter(JObject position, string text, bool toServer, out int converted)
+        private static bool TryConvertedCharacter(JObject position, string text, bool toServer, bool utf8Bytes, out int converted)
         {
             converted = 0;
             if (!TryReadNonNegativeInt(position["line"], out int line) ||
@@ -850,8 +887,11 @@ namespace ShaderTools.Core.Protocol
                 return false;
             }
 
-            return toServer
-                ? TryUtf16ToScalar(text, line, character, out converted)
+            if (toServer)
+            {
+                return TryUtf16ToServer(text, line, character, utf8Bytes, out converted);
+            }
+            return utf8Bytes ? TryUtf8LengthToUtf16(text, line, 0, character, out converted)
                 : TryScalarToUtf16(text, line, character, out converted);
         }
 
@@ -868,9 +908,9 @@ namespace ShaderTools.Core.Protocol
             range[characterProperty] = converted;
         }
 
-        private static bool TryUtf16ToScalar(string text, int line, int utf16Character, out int scalarCharacter)
+        private static bool TryUtf16ToServer(string text, int line, int utf16Character, bool utf8Bytes, out int column)
         {
-            scalarCharacter = 0;
+            column = 0;
             if (!TryGetLine(text, line, out int lineStart, out int lineLength) || utf16Character > lineLength)
             {
                 return false;
@@ -891,13 +931,14 @@ namespace ShaderTools.Core.Protocol
                     char.IsLowSurrogate(text[lineStart + offset + 1]))
                 {
                     offset += 2;
+                    column += utf8Bytes ? 4 : 1;
                 }
                 else
                 {
+                    char character = text[lineStart + offset];
+                    column += !utf8Bytes || character < 0x80 ? 1 : character < 0x800 ? 2 : 3;
                     offset++;
                 }
-
-                scalarCharacter++;
             }
 
             return true;
@@ -1096,6 +1137,7 @@ namespace ShaderTools.Core.Protocol
                 if (oldest != null)
                 {
                     _=openDocuments.Remove(oldest);
+                    _=documentVersions.Remove(oldest);
                 }
             }
 
@@ -1105,6 +1147,8 @@ namespace ShaderTools.Core.Protocol
         private void InvalidateOpenDocument(string normalizedUri)
         {
             _=openDocuments.Remove(normalizedUri);
+            _=documentVersions.Remove(normalizedUri);
+            documentGeneration++;
         }
 
         private void AddPending(JToken id, RequestContext context)
@@ -1180,6 +1224,8 @@ namespace ShaderTools.Core.Protocol
         private void Clear()
         {
             openDocuments.Clear();
+            documentVersions.Clear();
+            documentGeneration++;
             pendingRequests.Clear();
             pendingOrder.Clear();
             pendingNodes.Clear();

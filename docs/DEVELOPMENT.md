@@ -6,7 +6,7 @@
 - **Visual Studio extension development**, MSBuild and the **.NET Framework 4.7.2 targeting pack**. Add missing components through Visual Studio Installer.
 - **.NET SDK 10** and **Node.js 20+** for the full build and tests.
 - **clang-format** for the formatting test; that check is skipped if it is missing.
-- NuGet access for restore; GitHub access if the bundled server needs downloading.
+- NuGet access for restore. Recovering missing or modified server binaries requires the official GitHub release archive.
 
 Regular Windows PowerShell 5.1 and Developer PowerShell both work. The script finds MSBuild and sets the matching VS targets version.
 
@@ -46,10 +46,11 @@ After building, run these from the repository root:
 ```powershell
 dotnet test .\ShaderTools.Tests\ShaderTools.Tests.csproj -c Release
 node .\tests\lsp-smoke.mjs
+node .\tests\backend-regression.mjs
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-package.ps1
 ```
 
-The Node test uses the local server and bridge. The package test extracts the VSIX and checks its contents and server behavior, including include navigation, diagnostics, variants, formatting and shutdown.
+The Node tests use the local server and bridge. The package test extracts the VSIX and checks its contents and server behavior, including include navigation, diagnostics, variants, formatting and shutdown.
 
 The build workflow has been checked with Windows PowerShell 5.1 and VS 2022 Developer PowerShell, including a source copy without `bin` or `obj`. NuGet packages and the toolchain were already installed. Tests cover individual argument edits, unfinished and nested calls, stable hint identities, signature changes and completion signatures from the actual server, alongside the other editor and protocol checks.
 
@@ -80,10 +81,26 @@ Open the solution, set `ShaderTools.VisualStudio` as the startup project and pre
 
 Use `examples/BasicShaders` and `examples/Coloring` to check completion, navigation, diagnostics while typing, variants, settings reload, colors, folding and hints. Also test theme changes, Save As, multiple views and workspace changes.
 
+Also open the parent `examples` folder. Both `BasicShaders/shaders/triangle.frag` and `triangle.ps.hlsl` should resolve `colors.glsl` / `colors.hlsli` through `BasicShaders/.shadertools.json`. Inspect the active shader in **Shader Explorer > Includes** and check that `configurationPath` points to that nested file and `includes` contains `BasicShaders/include`. Saving a nested configuration should update open shaders without restarting the server. These checks apply to Shader Tools' HLSL support; a separate HLSL editor has its own configuration.
+
+For the navigation bar, open `triangle.vert`, switch to an HLSL tab, then open `triangle.frag`. The shader bar should list `colors.glsl`, `vertexColor`, `outputColor` and `main`; selecting `main` should move the caret to its declaration. This switch-and-select sequence was checked in a separate VS 2022 profile for 0.2.8. The integration replaces VS's known default LSP dropdown only on Shader Tools content types, and leaves other language providers alone. If VS changes that internal provider type, the ownership check may need updating.
+
 For argument hints, declare `float example(float first, int second);` and type `example(3.3, 2` in a function body. `first:` should appear when you enter `3`, and `second:` when you enter `2`, without waiting for `)`. Deleting `2` should remove only `second:`. This sequence, an empty argument with a closing parenthesis, and parameter renames at both call sites were checked in a separate VS 2022 test profile for 0.2.4. Unit tests also cover nested and multiline calls. Repeat these checks when changing hint handling.
 
 Automated tests do not cover the whole editor. The latest Ctrl+click handler still needs a live mouse test; earlier GLSL highlighting, folding and hints were checked in VS 2022. HLSL may use the separate HLSL Tools editor; see the BasicShaders README for its configuration.
 
-## Update the server
+## Project-scoped analysis
 
-Version, URL and hashes are pinned in `scripts/acquire-server.ps1`. Update the bundled notices and run the full build when changing them. Check the released server's capabilities before adding client features.
+Visual Studio connects to one bridge. The bridge starts a shader-language-server process for each active project configuration and supplies the merged settings at startup. Documents that resolve to the same configuration share a process. Two projects can therefore include the same header with different defines or include paths. A configuration change reloads the affected project and reopens its current document buffers.
+
+The bridge routes document requests to their owning process, combines symbol search results across active projects and uses the selected variant's dependency tree to track its headers. When troubleshooting, use **Extensions > Shader Tools > Show server output** to check which project handled the shader and **Shader Explorer > Includes** to see the effective configuration and include paths.
+
+## Bundled server
+
+The VSIX includes the three native files from the [shader-language-server v1.6.2 Windows x64 release](https://github.com/antaalt/shader-sense/releases/tag/v1.6.2). The build verifies each checked-in file against the SHA-256 pins in `scripts/server-release.psd1` and checks the server's reported version. If a file is missing or has changed, `scripts/acquire-server.ps1` downloads the release ZIP, verifies its digest and contents, then installs the verified files. To restore from a local copy, run:
+
+```powershell
+.\scripts\acquire-server.ps1 -ArchivePath .\shader-language-server-x86_64-pc-windows-msvc.zip
+```
+
+When updating, check the Windows x64 ZIP against the release's published digest, update the release pins, restore the native files and refresh the [dependency notices](../THIRD-PARTY-NOTICES.md). The package test checks the hashes again inside the finished VSIX and runs the bridge smoke and regression tests with that copy.

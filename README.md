@@ -9,10 +9,12 @@ Requires **Visual Studio 2022 17.14+ or Visual Studio 2026, x64**. Most editor t
 - Syntax highlighting, completion, hover information and signature help.
 - Compiler diagnostics through glslang, DXC and Naga.
 - Go to definition, including files referenced by `#include`.
+- A scope/member navigation bar and symbol search in Shader Explorer.
+- Include inspection and a configuration action for include diagnostics.
 - Folding, parameter hints and dimming of inactive code.
 - Shader variants and formatting through clang-format.
 
-The language server and DXC are included in the VSIX. Formatting needs a separate `clang-format.exe`. Node.js and the .NET SDK are only needed when building or testing the extension.
+The VSIX includes the official shader-language-server 1.6.2 Windows x64 release and its DXC libraries. Formatting needs a separate `clang-format.exe`. Building and testing the extension requires Node.js and the .NET SDK.
 
 ## Install and try it
 
@@ -23,6 +25,10 @@ The language server and DXC are included in the VSIX. Formatting needs a separat
 If the older **GLSL language integration** extension is installed, disable it to avoid competing GLSL editors.
 
 Commands are under **Extensions > Shader Tools**. **Shader Explorer** lists variants and symbols. **Show server output** opens the log; **Restart language server** restarts analysis.
+
+Use **Shader Explorer > Includes > Inspect active shader** to see the server’s active include tree, a list of source directives and the project’s configured defines. Double-click an active include to open it. The directive list also shows possible matches found on disk. Conditions and macro expansions can change which files the compiler uses. An include diagnostic can offer **Open shader configuration** through VS Quick Actions when a project configuration already exists.
+
+Interactive requests have a timeout so a stalled compiler can stop showing a pending result. If analysis remains unresponsive, the extension closes that server session and attempts up to two automatic restarts. Use **Show server output** for request timing and errors, or **Restart language server** to retry manually.
 
 Parameter hints update as you enter or delete individual arguments. Other argument hints stay visible, including in unfinished calls. The editor uses local declarations and cached completion signatures until the server responds. Ambiguous overloads wait for the server when their parameter names differ. Editing a local function's parameters also updates hints at its call sites.
 
@@ -40,7 +46,9 @@ Ctrl+click follows VS's Go To Definition mouse setting. Its handler is included,
 
 ## Project settings
 
-Use **Extensions > Shader Tools > Project settings** to open `.shadertools.json` in the solution or folder root. For a standalone file, the extension looks for the nearest parent configuration.
+Use **Extensions > Shader Tools > Project settings** to open the `.shadertools.json` that applies to the active shader. Settings are loaded from the open solution or folder root down to the shader's directory. For example, opening `examples` also loads `examples/BasicShaders/.shadertools.json` for shaders inside BasicShaders. Separate subprojects keep their own settings. Standalone files use the nearest parent configuration.
+
+Nested files override parent values. Objects such as `defines` are merged; arrays such as `includes` are replaced. Relative paths are resolved from the configuration file that declares them. `${workspaceFolder}` still refers to the open solution or folder root.
 
 For example, an OpenGL project can use:
 
@@ -71,7 +79,7 @@ BasicShaders includes both configuration files. Close and reopen HLSL tabs after
 
 ## Shader variants
 
-**Edit shader variants** opens `.shader-variants.json`. A variant sets the entry point, stage, defines and include paths for one shader:
+**Edit shader variants** opens the nearest `.shader-variants.json` for the active shader. **Refresh** in Shader Explorer reads that catalog. Shader paths in a project catalog are relative to its directory. A variant sets the entry point, stage, defines and include paths for one shader.
 
 ```json
 [

@@ -18,6 +18,7 @@ using System.Threading.Tasks;
 namespace ShaderTools.VisualStudio.Editor
 {
     [Export(typeof(INavigableSymbolSourceProvider))]
+    [Export(typeof(ShaderNavigableSymbolSourceProvider))]
     [Name("Shader Tools navigation")]
     [ContentType(ShaderContentTypes.Glsl)]
     [ContentType(ShaderContentTypes.Hlsl)]
@@ -53,7 +54,7 @@ namespace ShaderTools.VisualStudio.Editor
             ITextSnapshot snapshot = triggerSpan.Snapshot;
             ShaderLanguageClient client = ShaderLanguageClient.Instance;
             string uri = document.DocumentUri;
-            if (disposed || triggerSpan.IsEmpty || snapshot != buffer.CurrentSnapshot ||
+            if (disposed || snapshot.Length == 0 || snapshot != buffer.CurrentSnapshot ||
                 string.IsNullOrEmpty(uri) || client?.IsReady != true)
             {
                 return null;
@@ -79,11 +80,12 @@ namespace ShaderTools.VisualStudio.Editor
                     return null;
                 }
 
-                DefinitionLocation target = DefinitionLocation.Read(result).FirstOrDefault();
-                if (target == null)
+                DefinitionLocation[] targets = DefinitionLocation.Read(result).Take(2).ToArray();
+                if (targets.Length != 1)
                 {
                     return null;
                 }
+                DefinitionLocation target = targets[0];
 
                 SnapshotSpan symbolSpan = triggerSpan;
                 if (LspTextRange.TryParse(target.OriginRange, out LspTextRange origin) &&

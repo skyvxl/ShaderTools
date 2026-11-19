@@ -73,7 +73,7 @@ public sealed class ShaderConfiguration
         "enabled",
     };
 
-    private ShaderConfiguration(string workspaceRoot, string configurationPath, JObject settings)
+    internal ShaderConfiguration(string workspaceRoot, string configurationPath, JObject settings)
     {
         WorkspaceRoot = workspaceRoot;
         ConfigurationPath = configurationPath;
@@ -85,6 +85,76 @@ public sealed class ShaderConfiguration
     public string ConfigurationPath { get; }
 
     public JObject Settings { get; }
+
+    // Only ancestors of this document participate; sibling projects are independent.
+    public static ShaderConfiguration LoadForDocument(string workspaceRoot, string filePath, string? userSettingsPath = null)
+    {
+        string root = GetDocumentRoot(workspaceRoot, filePath);
+        ShaderConfiguration configuration = Load(root, userSettingsPath);
+        string configurationPath = configuration.ConfigurationPath;
+        foreach (string directory in GetDocumentDirectories(root, filePath))
+        {
+            string path = Path.Combine(directory, FileName);
+            if (File.Exists(path))
+            {
+                Merge(configuration.Settings, LoadLayer(path, directory, root));
+                configurationPath = path;
+            }
+        }
+
+        return new ShaderConfiguration(root, configurationPath, configuration.Settings);
+    }
+
+    public static string FindConfigurationPath(string workspaceRoot, string filePath)
+    {
+        return FindProjectFile(workspaceRoot, filePath, FileName);
+    }
+
+    internal static string FindProjectFile(string workspaceRoot, string filePath, string fileName)
+    {
+        string root = GetDocumentRoot(workspaceRoot, filePath);
+        string path = Path.Combine(root, fileName);
+        foreach (string directory in GetDocumentDirectories(root, filePath))
+        {
+            string candidate = Path.Combine(directory, fileName);
+            if (File.Exists(candidate)) { path = candidate; }
+        }
+        return path;
+    }
+
+    internal static string GetDocumentRoot(string workspaceRoot, string filePath)
+    {
+        string documentDirectory = Path.GetDirectoryName(Path.GetFullPath(filePath))!;
+        if (!string.IsNullOrWhiteSpace(workspaceRoot))
+        {
+            string root = Path.GetFullPath(workspaceRoot);
+            string prefix = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            if (string.Equals(documentDirectory, root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), StringComparison.OrdinalIgnoreCase) ||
+                (documentDirectory + Path.DirectorySeparatorChar).StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            {
+                return root;
+            }
+        }
+
+        for (DirectoryInfo? directory = new DirectoryInfo(documentDirectory); directory != null; directory = directory.Parent)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, FileName))) { return directory.FullName; }
+        }
+        return documentDirectory;
+    }
+
+    private static IEnumerable<string> GetDocumentDirectories(string root, string filePath)
+    {
+        Stack<string> directories = new Stack<string>();
+        string normalizedRoot = root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        for (DirectoryInfo? directory = new DirectoryInfo(Path.GetDirectoryName(Path.GetFullPath(filePath))!);
+            directory != null && !string.Equals(directory.FullName.TrimEnd(Path.DirectorySeparatorChar), normalizedRoot, StringComparison.OrdinalIgnoreCase);
+            directory = directory.Parent)
+        {
+            directories.Push(directory.FullName);
+        }
+        return directories;
+    }
 
     public static ShaderConfiguration Load(string workspaceRoot, string? userSettingsPath = null)
     {

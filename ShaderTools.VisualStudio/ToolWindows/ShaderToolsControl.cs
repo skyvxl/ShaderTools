@@ -49,6 +49,7 @@ namespace ShaderTools.VisualStudio.ToolWindows
             TabControl tabs = new TabControl();
             _=tabs.Items.Add(new TabItem { Header = "Variants", Content = BuildVariantPage() });
             _=tabs.Items.Add(new TabItem { Header = "Symbols", Content = BuildSymbolPage() });
+            _=tabs.Items.Add(new TabItem { Header = "Includes", Content = new ShaderPreprocessorControl() });
             _=root.Children.Add(tabs);
             Content = root;
             Loaded += OnLoaded;
@@ -144,8 +145,11 @@ namespace ShaderTools.VisualStudio.ToolWindows
             long version = Interlocked.Increment(ref refreshVersion);
             string root = await WorkspaceContext.GetRootAsync();
             if (string.IsNullOrEmpty(root)) { notice.Text = "Open a solution, folder or shader to load its variants."; return; }
-            string path = catalogPath ?? Path.Combine(root, ".shader-variants.json");
-            System.Collections.Generic.IReadOnlyList<ShaderVariant> entries = await Task.Run(() => VariantCatalog.Load(path, root), lifetime.Token);
+            string activeFile = await WorkspaceContext.GetActiveFileAsync();
+            string path = catalogPath ?? VariantCatalog.FindProjectCatalog(root, ShaderContentTypes.ForPath(activeFile ?? "") == null ? null : activeFile);
+            string project = string.Equals(Path.GetFileName(path), VariantCatalog.FileName, StringComparison.OrdinalIgnoreCase)
+                ? Path.GetDirectoryName(path) : root;
+            System.Collections.Generic.IReadOnlyList<ShaderVariant> entries = await Task.Run(() => VariantCatalog.Load(path, project), lifetime.Token);
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync(lifetime.Token);
             if (version != refreshVersion)
             {

@@ -10,6 +10,10 @@
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.0.2" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.Interop" Version="17.14.40260" />
     <ProjectReference Include="..\ShaderTools.Core\ShaderTools.Core.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\ShaderTools.VisualStudio\Editor\ShaderNavigationBarRegistration.cs" Link="Editor\ShaderNavigationBarRegistration.cs" />
   </ItemGroup>
 </Project>

@@ -49,7 +49,7 @@ namespace ShaderTools.VisualStudio.Options
         public HlslModel ShaderModel { get; set; } = HlslModel.ShaderModel6_8;
         [Category("HLSL"), DisplayName("Enable 16-bit types"), DefaultValue(false)]
         public bool Enable16BitTypes { get; set; }
-        [Category("Tools"), DisplayName("Custom language server"), Description("Optional absolute path to shader-language-server.exe 1.4.3. Empty uses the bundled server. Restart the server after changing this.")]
+        [Category("Tools"), DisplayName("Custom language server"), Description("Optional absolute path to shader-language-server.exe compatible with 1.6.2. Empty uses the bundled server. Restart the server after changing this.")]
         public string ServerPath { get; set; } = "";
         [Category("Tools"), DisplayName("clang-format directory"), Description("Optional directory containing clang-format.exe. Empty searches PATH and this Visual Studio's LLVM tools. Restart the server after changing this.")]
         public string FormatDirectory { get; set; } = "";

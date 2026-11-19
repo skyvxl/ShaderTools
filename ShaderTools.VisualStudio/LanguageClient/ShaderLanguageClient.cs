@@ -36,6 +36,8 @@ namespace ShaderTools.VisualStudio.LanguageClient
         private readonly CancellationTokenSource lifetime = new CancellationTokenSource();
         private bool loaded;
         private bool disposed;
+        private readonly object recoveryGate = new object();
+        private int automaticRecoveries;
         private readonly ConcurrentDictionary<string, TaskCompletionSource<bool>> documents = new ConcurrentDictionary<string, TaskCompletionSource<bool>>(StringComparer.OrdinalIgnoreCase);
         public static ShaderLanguageClient Instance { get; private set; }
         public static event EventHandler ReadyChanged;
@@ -153,6 +155,7 @@ namespace ShaderTools.VisualStudio.LanguageClient
                     RedirectStandardInput = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
+                    StandardErrorEncoding = System.Text.Encoding.UTF8,
                     WorkingDirectory = string.IsNullOrEmpty(WorkspaceRoot) ? directory : WorkspaceRoot
                 },
                 EnableRaisingEvents = true
@@ -163,6 +166,10 @@ namespace ShaderTools.VisualStudio.LanguageClient
                 if (ReferenceEquals(process, started))
                 {
                     SetState(false, "Shader server stopped. Use Extensions > Shader Tools > Restart language server.");
+                    if (!disposed && started.ExitCode == 2)
+                    {
+                        BackgroundWork.Run(() => RecoverAsync(started), "ShaderTools/RecoverServer");
+                    }
                 }
             };
             _=started.Start();
@@ -180,7 +187,7 @@ namespace ShaderTools.VisualStudio.LanguageClient
         }
         public Task OnServerInitializedAsync()
         {
-            SetState(true, "Ready · GLSL / HLSL / WGSL · server 1.4.3");
+            SetState(true, "Ready · GLSL / HLSL / WGSL · shader-sense 1.6.2");
             ShaderVariant variant = ActiveVariant;
             long intent = Interlocked.Read(ref variantIntentVersion);
             if (variant != null)
@@ -222,7 +229,35 @@ namespace ShaderTools.VisualStudio.LanguageClient
 
         public Task RestartAsync()
         {
+            lock (recoveryGate)
+            {
+                automaticRecoveries = 0;
+            }
+
             return RestartCoreAsync(false);
+        }
+
+        private async Task RecoverAsync(Process stopped)
+        {
+            lock (recoveryGate)
+            {
+                if (automaticRecoveries >= 2)
+                {
+                    return;
+                }
+
+                automaticRecoveries++;
+            }
+            await Task.Delay(500, lifetime.Token);
+            if (disposed || !ReferenceEquals(process, stopped))
+            {
+                return;
+            }
+
+            ShaderOutput.Log("Restarting shader analysis after an unresponsive session.");
+            // The standard VS stop/start lifecycle reopens its current buffers. ActiveVariant is restored
+            // by OnServerInitializedAsync, and ActivateAsync reloads the current configuration.
+            await RestartCoreAsync(false);
         }
 
         private async Task RestartCoreAsync(bool workspaceChanged)
@@ -336,6 +371,8 @@ namespace ShaderTools.VisualStudio.LanguageClient
             if (IsReady)
             {
                 await NotifyAsync("workspace/didChangeConfiguration", new JObject { ["settings"] = new JObject() });
+                // Invalidate editor caches even when the document text itself is unchanged.
+                SetState(IsReady, Status);
             }
         }
 
@@ -347,7 +384,7 @@ namespace ShaderTools.VisualStudio.LanguageClient
                 return;
             }
 
-            configurationWatcher = new FileSystemWatcher(WorkspaceRoot, ".shadertools.json") { NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
+            configurationWatcher = new FileSystemWatcher(WorkspaceRoot, ".shadertools.json") { IncludeSubdirectories = true, NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size };
             configurationWatcher.Changed += OnConfigurationFileChanged;
             configurationWatcher.Created += OnConfigurationFileChanged;
             configurationWatcher.Deleted += OnConfigurationFileChanged;
@@ -514,6 +551,17 @@ namespace ShaderTools.VisualStudio.LanguageClient
 
     internal sealed class ShaderCustomMessageTarget
     {
+        [JsonRpcMethod("shaderTools/openConfiguration", UseSingleObjectParameterDeserialization = true)]
+        public Task OpenConfigurationAsync(JToken parameters)
+        {
+            string uri = (string)parameters?["uri"];
+            if (!Uri.TryCreate(uri, UriKind.Absolute, out Uri file) || !file.IsFile)
+            {
+                return Task.CompletedTask;
+            }
+
+            return WorkspaceContext.OpenFileAsync(file.LocalPath);
+        }
         [JsonRpcMethod("shaderTools/diagnostics", UseSingleObjectParameterDeserialization = true)]
         public void Diagnostics(JToken parameters)
         {

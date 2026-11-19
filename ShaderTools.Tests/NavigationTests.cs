@@ -7,6 +7,13 @@ namespace ShaderTools.Tests;
 public sealed class NavigationTests
 {
     [Fact]
+    public void VisualStudioEncodedDriveOpensTheNativeWindowsPath()
+    {
+        var link = JObject.Parse("""{"targetUri":"file:///H%3A/Shader%20Tools/%D0%AE.glsl","targetSelectionRange":{"start":{"line":3,"character":9}}}""");
+        Assert.Equal(@"H:\Shader Tools\Ю.glsl", DefinitionLocation.Read(link).Single().FilePath);
+    }
+
+    [Fact]
     public void IncludeLinkAllowsZeroLengthTargetAndDecodesUnicodePath()
     {
         var link = JObject.Parse("""{"targetUri":"file:///C:/shaders%20%C3%BC/colors.glsl","targetRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}},"targetSelectionRange":{"start":{"line":0,"character":0},"end":{"line":0,"character":0}}}""");

@@ -43,7 +43,7 @@ public sealed class PositionEncodingTests : IDisposable
 
         var request = PositionRequest(10, "textDocument/hover", uri, 1, 3);
         converter.ProcessClientMessage(request);
-        Assert.Equal(2, request.SelectToken("params.position.character")!.Value<int>());
+        Assert.Equal(5, request.SelectToken("params.position.character")!.Value<int>());
     }
 
     [Fact]
@@ -185,10 +185,10 @@ public sealed class PositionEncodingTests : IDisposable
             {
               "id": "definition",
               "result": [{
-                "originSelectionRange": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } },
+                "originSelectionRange": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 4 } },
                 "targetUri": "target",
-                "targetRange": { "start": { "line": 0, "character": 1 }, "end": { "line": 0, "character": 2 } },
-                "targetSelectionRange": { "start": { "line": 0, "character": 2 }, "end": { "line": 0, "character": 8 } }
+                "targetRange": { "start": { "line": 0, "character": 1 }, "end": { "line": 0, "character": 5 } },
+                "targetSelectionRange": { "start": { "line": 0, "character": 5 }, "end": { "line": 0, "character": 11 } }
               }]
             }
             """);
@@ -196,7 +196,7 @@ public sealed class PositionEncodingTests : IDisposable
 
         converter.ProcessServerMessage(response);
 
-        Assert.Equal(1, request.SelectToken("params.position.character")!.Value<int>());
+        Assert.Equal(4, request.SelectToken("params.position.character")!.Value<int>());
         Assert.Equal(2, response.SelectToken("result[0].originSelectionRange.end.character")!.Value<int>());
         Assert.Equal(3, response.SelectToken("result[0].targetRange.end.character")!.Value<int>());
         Assert.Equal(3, response.SelectToken("result[0].targetSelectionRange.start.character")!.Value<int>());
@@ -216,7 +216,7 @@ public sealed class PositionEncodingTests : IDisposable
             ["method"] = "workspace/symbol",
             ["params"] = new JObject { ["query"] = "symbol" },
         });
-        var response = JObject.Parse("""{"id":"symbols","result":[{"name":"symbol","kind":13,"location":{"uri":"placeholder","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":1}}}}]}""");
+        var response = JObject.Parse("""{"id":"symbols","result":[{"name":"symbol","kind":13,"location":{"uri":"placeholder","range":{"start":{"line":0,"character":0},"end":{"line":0,"character":4}}}}]}""");
         response.SelectToken("result[0].location")!["uri"] = targetUri;
 
         converter.ProcessServerMessage(response);
@@ -235,14 +235,14 @@ public sealed class PositionEncodingTests : IDisposable
         File.WriteAllText(targetPath, "😀a");
 
         converter.ProcessClientMessage(Request(31, "textDocument/definition", sourceUri));
-        var first = LocationResponse(31, targetUri, 0, 1);
+        var first = LocationResponse(31, targetUri, 0, 4);
         converter.ProcessServerMessage(first);
         Assert.Equal(2, first.SelectToken("result.range.end.character")!.Value<int>());
 
         File.WriteAllText(targetPath, "x😀a");
         File.SetLastWriteTimeUtc(targetPath, DateTime.UtcNow.AddSeconds(2));
         converter.ProcessClientMessage(Request(32, "textDocument/definition", sourceUri));
-        var second = LocationResponse(32, targetUri, 1, 2);
+        var second = LocationResponse(32, targetUri, 1, 5);
         converter.ProcessServerMessage(second);
 
         Assert.Equal(3, second.SelectToken("result.range.end.character")!.Value<int>());
@@ -258,8 +258,8 @@ public sealed class PositionEncodingTests : IDisposable
         converter.ProcessClientMessage(DidOpen(secondUri, "xx😀b"));
         converter.ProcessClientMessage(Request("first", "textDocument/hover", firstUri));
         converter.ProcessClientMessage(Request(42, "textDocument/hover", secondUri));
-        var secondResponse = RangeResponse(42, 2, 3);
-        var firstResponse = RangeResponse("first", 0, 1);
+        var secondResponse = RangeResponse(42, 2, 6);
+        var firstResponse = RangeResponse("first", 0, 4);
 
         converter.ProcessServerMessage(secondResponse);
         converter.ProcessServerMessage(firstResponse);
@@ -279,14 +279,14 @@ public sealed class PositionEncodingTests : IDisposable
         var uri = FileUri(Path.Combine(_root, "reused.frag"));
         converter.ProcessClientMessage(DidOpen(uri, "😀a"));
         converter.ProcessClientMessage(Request("reused", "textDocument/hover", uri));
-        converter.ProcessServerMessage(RangeResponse("reused", 0, 1));
+        converter.ProcessServerMessage(RangeResponse("reused", 0, 4));
         for (var id = 0; id < 512; id++)
         {
             converter.ProcessClientMessage(Request(id, "textDocument/hover", uri));
         }
 
         converter.ProcessClientMessage(Request("reused", "textDocument/hover", uri));
-        var response = RangeResponse("reused", 0, 1);
+        var response = RangeResponse("reused", 0, 4);
         converter.ProcessServerMessage(response);
 
         Assert.Equal(2, response.SelectToken("result.range.end.character")!.Value<int>());
@@ -325,7 +325,7 @@ public sealed class PositionEncodingTests : IDisposable
             {
               "id": 55,
               "result": {
-                "originSelectionRange": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 1 } },
+                "originSelectionRange": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 4 } },
                 "targetUri": "untitled:missing",
                 "targetRange": { "start": { "line": 0, "character": 7 }, "end": { "line": 0, "character": 8 } },
                 "targetSelectionRange": { "start": { "line": 0, "character": 7 }, "end": { "line": 0, "character": 8 } }
@@ -386,15 +386,16 @@ public sealed class PositionEncodingTests : IDisposable
 
     private static JObject ResponseFor(string method, object id)
     {
-        const string range = "{start:{line:0,character:2},end:{line:0,character:3}}";
+        const string scalarRange = "{start:{line:0,character:2},end:{line:0,character:3}}";
+        const string syntaxRange = "{start:{line:0,character:5},end:{line:0,character:6}}";
         var response = method switch
         {
-            "textDocument/completion" => JObject.Parse($"{{result:{{items:[{{label:'x',textEdit:{{range:{range},newText:'x'}}}}]}}}}"),
-            "textDocument/hover" => JObject.Parse($"{{result:{{contents:'x',range:{range}}}}}"),
-            "textDocument/inlayHint" => JObject.Parse("{result:[{position:{line:0,character:2},label:'x'}]}"),
-            "textDocument/documentSymbol" => JObject.Parse($"{{result:[{{name:'x',kind:12,range:{range},selectionRange:{range}}}]}}"),
-            "textDocument/formatting" => JObject.Parse($"{{result:[{{range:{range},newText:'x'}}]}}"),
-            "textDocument/rangeFormatting" => JObject.Parse($"{{result:[{{range:{range},newText:'x'}}]}}"),
+            "textDocument/completion" => JObject.Parse($"{{result:{{items:[{{label:'x',textEdit:{{range:{scalarRange},newText:'x'}}}}]}}}}"),
+            "textDocument/hover" => JObject.Parse($"{{result:{{contents:'x',range:{syntaxRange}}}}}"),
+            "textDocument/inlayHint" => JObject.Parse("{result:[{position:{line:0,character:5},label:'x'}]}"),
+            "textDocument/documentSymbol" => JObject.Parse($"{{result:[{{name:'x',kind:12,range:{syntaxRange},selectionRange:{syntaxRange}}}]}}"),
+            "textDocument/formatting" => JObject.Parse($"{{result:[{{range:{scalarRange},newText:'x'}}]}}"),
+            "textDocument/rangeFormatting" => JObject.Parse($"{{result:[{{range:{scalarRange},newText:'x'}}]}}"),
             _ => throw new ArgumentOutOfRangeException(nameof(method)),
         };
         response["id"] = JToken.FromObject(id);

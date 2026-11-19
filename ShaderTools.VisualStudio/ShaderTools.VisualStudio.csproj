@@ -53,6 +53,9 @@
     <Compile Include="Editor\ShaderFormattingCommands.cs" />
     <Compile Include="Editor\ShaderFormatOnSave.cs" />
     <Compile Include="Editor\ShaderNavigableSymbolSource.cs" />
+    <Compile Include="Editor\ShaderNavigationBarClient.cs" />
+    <Compile Include="Editor\ShaderNavigationBarManager.cs" />
+    <Compile Include="Editor\ShaderNavigationBarRegistration.cs" />
     <Compile Include="Editor\ShaderClassificationTagger.cs" />
     <Compile Include="Editor\ShaderDiagnostics.cs" />
     <Compile Include="Editor\ShaderEditorEvents.cs" />
@@ -74,6 +77,7 @@
     <Compile Include="Services\WorkspaceContext.cs" />
     <Compile Include="Services\WorkspaceMonitor.cs" />
     <Compile Include="ToolWindows\ShaderToolsControl.cs" />
+    <Compile Include="ToolWindows\ShaderPreprocessorControl.cs" />
     <Compile Include="ToolWindows\ShaderToolsWindow.cs" />
   </ItemGroup>
   <ItemGroup>
@@ -114,7 +118,7 @@
       <IncludeOutputGroupsInVSIX>BuiltProjectOutputGroup;BuiltProjectOutputGroupDependencies</IncludeOutputGroupsInVSIX>
       <VSIXSubPath>Bridge</VSIXSubPath>
     </ProjectReference>
-    <Content Include="Grammars\**\*;Server\**\*;ShaderTools.pkgdef">
+    <Content Include="Grammars\**\*;Server\shader-language-server.exe;Server\dxcompiler.dll;Server\dxil.dll;ShaderTools.pkgdef">
       <IncludeInVSIX>true</IncludeInVSIX>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>

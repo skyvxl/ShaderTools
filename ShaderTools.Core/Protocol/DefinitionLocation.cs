@@ -32,7 +32,7 @@ public sealed class DefinitionLocation
 
             JToken? uriToken = location["targetUri"] ?? location["uri"];
             if (uriToken?.Type != JTokenType.String ||
-                !Uri.TryCreate((string?)uriToken, UriKind.Absolute, out Uri? uri) || !uri.IsFile)
+                !Uri.TryCreate(ClientFileUris.NormalizeDrive((string)uriToken!), UriKind.Absolute, out Uri? uri) || !uri.IsFile)
             {
                 continue;
             }

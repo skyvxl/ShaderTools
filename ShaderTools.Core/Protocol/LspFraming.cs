@@ -15,7 +15,7 @@ namespace ShaderTools.Core.Protocol
         private const int MaximumPayloadLength = 32 * 1024 * 1024;
         private static readonly Encoding Utf8 = new UTF8Encoding(false, true);
 
-        public static async Task<JObject?> ReadAsync(Stream stream, CancellationToken cancellationToken)
+        public static async Task<JObject?> ReadAsync(Stream stream, CancellationToken cancellationToken, bool allowUtf8Preamble = false)
         {
             StringBuilder header = new StringBuilder();
             byte[] single = new byte[1];
@@ -31,6 +31,19 @@ namespace ShaderTools.Core.Protocol
 
                     throw new EndOfStreamException("The language server closed a partial LSP header.");
                 }
+                // A .NET Framework Process can write its console encoding preamble while
+                // opening redirected stdin. Accept it once at the VS connection boundary.
+                if (allowUtf8Preamble && single[0] == 0xef)
+                {
+                    if (await stream.ReadAsync(single, 0, 1, cancellationToken).ConfigureAwait(false) != 1 || single[0] != 0xbb ||
+                        await stream.ReadAsync(single, 0, 1, cancellationToken).ConfigureAwait(false) != 1 || single[0] != 0xbf)
+                    {
+                        throw new InvalidDataException("Invalid UTF-8 preamble in LSP header.");
+                    }
+                    allowUtf8Preamble = false;
+                    continue;
+                }
+                allowUtf8Preamble = false;
                 if (single[0] > 127)
                 {
                     throw new InvalidDataException("LSP headers must be ASCII.");

@@ -1,9 +1,9 @@
 SHADER LANGUAGE SERVER - THIRD-PARTY NOTICES
 ===========================================
 
-These notices accompany shader-language-server 1.4.3.
+These notices accompany shader-language-server 1.6.2.
 Upstream: https://github.com/antaalt/shader-sense
-Release revision: 54fb7e4151a0ac441eef158a34f942b909c77656
+Release revision: 9d11fa8f6ca114819cedcc3beb5d5121666689f1
 Dependency versions: Cargo.lock at that revision.
 
 The component inventory below conservatively includes the transitive Cargo
@@ -86,6 +86,18 @@ Declared license: Apache-2.0 OR MIT
 Source archive: https://static.crates.io/crates/autocfg/autocfg-1.5.0.crate
 Archive SHA-256: c08606f8c3cbf4ce6ec8e28fb0014a2c086708fe954eaa885384a6165172e7e8
 Notices: L008, L010
+
+base64 0.22.1
+Declared license: MIT OR Apache-2.0
+Source archive: https://static.crates.io/crates/base64/base64-0.22.1.crate
+Archive SHA-256: 72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6
+Notices: L008, L159
+
+base64-bytes 0.1.0
+Declared license: MIT
+Source archive: https://static.crates.io/crates/base64-bytes/base64-bytes-0.1.0.crate
+Archive SHA-256: 7ce54e4e485fa0eed9c3aa5348162be09168f75bb5be7bc6587bcf2a65ee1386
+Notices: L160
 
 bit-set 0.8.0
 Declared license: Apache-2.0 OR MIT
@@ -194,6 +206,12 @@ Declared license: Apache-2.0 OR MIT
 Source archive: https://static.crates.io/crates/equivalent/equivalent-1.0.2.crate
 Archive SHA-256: 877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f
 Notices: L008, L021
+
+fixedbitset 0.5.7
+Declared license: MIT OR Apache-2.0
+Source archive: https://static.crates.io/crates/fixedbitset/fixedbitset-0.5.7.crate
+Archive SHA-256: 1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99
+Notices: L008, L161
 
 foldhash 0.1.5
 Declared license: Zlib
@@ -411,6 +429,12 @@ Source archive: https://static.crates.io/crates/percent-encoding/percent-encodin
 Archive SHA-256: e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e
 Notices: L008, L122
 
+petgraph 0.7.1
+Declared license: MIT OR Apache-2.0
+Source archive: https://static.crates.io/crates/petgraph/petgraph-0.7.1.crate
+Archive SHA-256: 3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772
+Notices: L008, L162, L163
+
 portable-atomic 1.11.1
 Declared license: Apache-2.0 OR MIT
 Source archive: https://static.crates.io/crates/portable-atomic/portable-atomic-1.11.1.crate
@@ -530,6 +554,12 @@ Declared license: MPL-2.0+
 Source archive: https://static.crates.io/crates/smartstring/smartstring-1.0.1.crate
 Archive SHA-256: 3fb72c633efbaa2dd666986505016c32c3044395ceaf881518399d2f4127ee29
 Notices: L137
+
+spirv 0.3.0+sdk-1.3.268.0
+Declared license: Apache-2.0
+Source archive: https://static.crates.io/crates/spirv/spirv-0.3.0+sdk-1.3.268.0.crate
+Archive SHA-256: eda41003dc44290527a59b13432d4a0379379fa074b70174882adfbdfd917844
+Notices: L017, L164
 
 stable_deref_trait 1.2.0
 Declared license: MIT/Apache-2.0
@@ -1528,6 +1558,9 @@ Applies to:
   version_check 0.9.5: LICENSE-APACHE
   wasi 0.14.2+wasi-0.2.4: LICENSE-APACHE
   wit-bindgen-rt 0.39.0: https://raw.githubusercontent.com/bytecodealliance/wit-bindgen/f2393e6e98fa5f9236cac580db8a3fc9de6a4b70/LICENSE-APACHE
+  base64 0.22.1: LICENSE-APACHE
+  fixedbitset 0.5.7: LICENSE-APACHE
+  petgraph 0.7.1: LICENSE-APACHE
 -------------------------------------------------------------------------------
 
 Apache License
@@ -2165,6 +2198,7 @@ Applies to:
   codespan-reporting 0.11.1: https://raw.githubusercontent.com/brendanzab/codespan/fd389a13f5bb6d625b71e2e4694b26e127f393f9/LICENSE
   static_assertions 1.1.0: LICENSE-APACHE
   utf8_iter 1.0.4: LICENSE-APACHE
+  spirv 0.3.0+sdk-1.3.268.0: https://raw.githubusercontent.com/gfx-rs/rspirv/e91a5debc10c395b36db7721dfff6326d697a1e2/LICENSE
 -------------------------------------------------------------------------------
 
 Apache License
@@ -5336,7 +5370,7 @@ Applies to:
 // 
 // MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS KHRONOS
 // STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS SPECIFICATIONS AND
-// HEADER INFORMATION ARE LOCATED AT https://www.khronos.org/registry/ 
+// HEADER INFORMATION ARE LOCATED AT https://www.khronos.org/registry/
 // 
 // THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
 // OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -11442,3 +11476,167 @@ Apache License
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
+
+-------------------------------------------------------------------------------
+L159
+Applies to:
+  base64 0.22.1: LICENSE-MIT
+-------------------------------------------------------------------------------
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Alice Maz
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+L160
+Applies to:
+  base64-bytes 0.1.0: LICENSE
+-------------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2024 Translucence Research, Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-------------------------------------------------------------------------------
+L161
+Applies to:
+  fixedbitset 0.5.7: LICENSE-MIT
+-------------------------------------------------------------------------------
+
+Copyright (c) 2015-2017
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+L162
+Applies to:
+  petgraph 0.7.1: LICENSE-MIT
+-------------------------------------------------------------------------------
+
+Copyright (c) 2015
+
+Permission is hereby granted, free of charge, to any
+person obtaining a copy of this software and associated
+documentation files (the "Software"), to deal in the
+Software without restriction, including without
+limitation the rights to use, copy, modify, merge,
+publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software
+is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice
+shall be included in all copies or substantial portions
+of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
+TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
+IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+DEALINGS IN THE SOFTWARE.
+
+-------------------------------------------------------------------------------
+L163
+Applies to:
+  petgraph 0.7.1: assets/LICENSE.md
+-------------------------------------------------------------------------------
+
+Graphosaurus (c) by the petgraph project.
+
+Graphosaurus is licensed under a
+Creative Commons Attribution-ShareAlike 4.0 International License.
+
+You should have received a copy of the license along with this
+work.  If not, see <http://creativecommons.org/licenses/by-sa/4.0/>.
+
+-------------------------------------------------------------------------------
+L164
+Applies to:
+  spirv 0.3.0+sdk-1.3.268.0: https://raw.githubusercontent.com/KhronosGroup/SPIRV-Headers/e867c06631767a2d96424cbec530f9ee5e78180f/include/spirv/unified1/spirv.core.grammar.json
+-------------------------------------------------------------------------------
+
+Copyright (c) 2014-2020 The Khronos Group Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and/or associated documentation files (the "Materials"),
+to deal in the Materials without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Materials, and to permit persons to whom the
+Materials are furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Materials.
+
+MODIFICATIONS TO THIS FILE MAY MEAN IT NO LONGER ACCURATELY REFLECTS KHRONOS
+STANDARDS. THE UNMODIFIED, NORMATIVE VERSIONS OF KHRONOS SPECIFICATIONS AND
+HEADER INFORMATION ARE LOCATED AT https://www.khronos.org/registry/
+
+THE MATERIALS ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
+THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM,OUT OF OR IN CONNECTION WITH THE MATERIALS OR THE USE OR OTHER DEALINGS
+IN THE MATERIALS.

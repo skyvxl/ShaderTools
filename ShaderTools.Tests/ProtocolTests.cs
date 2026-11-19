@@ -8,6 +8,20 @@ namespace ShaderTools.Tests;
 public class ProtocolTests
 {
     [Fact]
+    public async Task RedirectedFrameworkStdinPreambleIsAcceptedOnlyAtConnectionStart()
+    {
+        using var wire = new MemoryStream();
+        var bom = new System.Text.UTF8Encoding(true).GetPreamble();
+        wire.Write(bom);
+        await LspFraming.WriteAsync(wire, new JObject { ["id"] = 1 }, default);
+        wire.Write(bom);
+        await LspFraming.WriteAsync(wire, new JObject { ["id"] = 2 }, default);
+        wire.Position = 0;
+        Assert.Equal(1, (int)(await LspFraming.ReadAsync(wire, default, allowUtf8Preamble: true))!["id"]!);
+        await Assert.ThrowsAsync<InvalidDataException>(() => LspFraming.ReadAsync(wire, default));
+    }
+
+    [Fact]
     public async Task UnicodePayloadUsesUtf8ByteLengthAndLeavesNextFrameIntact()
     {
         var first = new JObject { ["jsonrpc"] = "2.0", ["method"] = "test", ["params"] = "шейдер 🟩" };

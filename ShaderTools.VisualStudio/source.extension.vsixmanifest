@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
     <Metadata>
-        <Identity Id="ShaderTools.f373ca48-f553-49ee-a743-4470b600021b" Version="0.2.6" Language="en-US" Publisher="skyvxl" />
+        <Identity Id="ShaderTools.f373ca48-f553-49ee-a743-4470b600021b" Version="0.2.8" Language="en-US" Publisher="skyvxl" />
         <DisplayName>Shader Tools for Visual Studio</DisplayName>
         <Description xml:space="preserve">GLSL and HLSL language tools: compiler diagnostics, IntelliSense, navigation, parameter hints, formatting, shader variants and a native shader explorer. Powered by shader-sense.</Description>
         <Icon>assets/logo.png</Icon>

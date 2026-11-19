@@ -3,21 +3,21 @@
 This distribution contains the following third-party components. The license
 files named below are shipped in the `licenses` directory.
 
-## shader-language-server 1.4.3
+## shader-language-server 1.6.2
 
 - Component: `ShaderTools.VisualStudio/Server/shader-language-server.exe`
 - Project: [antaalt/shader-sense](https://github.com/antaalt/shader-sense)
-- Release: `v1.4.3` (`54fb7e4151a0ac441eef158a34f942b909c77656`)
+- Release: `v1.6.2` (`9d11fa8f6ca114819cedcc3beb5d5121666689f1`)
 - License: MIT, copyright (c) 2024 antaalt
 - License file: `licenses/shader-sense-LICENSE.txt`
 
-The executable is redistributed without modification from the upstream
-`shader-language-server-x86_64-pc-windows-msvc.zip` release asset. The
-acquisition script pins that asset's SHA-256 digest.
+The executable and both DXC libraries come from the official Windows x64
+release archive. Its SHA-256 and the individual file hashes are pinned in
+`scripts/server-release.psd1`.
 
 The server's dependency notices are reproduced in
 `licenses/ShaderLanguageServer-ThirdPartyNotices.txt`, including native glslang,
-Naga, tree-sitter and the shader grammars. Its inventory covers 144 packages
+Naga, tree-sitter and the shader grammars. Its inventory covers 149 packages
 from the pinned Cargo.lock dependency closure (including build and optional
 platform dependencies), with source URLs and verified archive checksums.
 
@@ -40,7 +40,7 @@ file extensions supported by Shader Tools.
 
 - Components: `ShaderTools.VisualStudio/Server/dxcompiler.dll` and `ShaderTools.VisualStudio/Server/dxil.dll`
 - Project: [microsoft/DirectXShaderCompiler](https://github.com/microsoft/DirectXShaderCompiler)
-- Release: `v1.8.2405`, selected by the shader-language-server `v1.4.3`
+- Release: `v1.8.2405`, selected by the shader-language-server `v1.6.2`
   Windows release workflow
 - License file: `licenses/DirectXShaderCompiler-LICENSE.txt`
 - Upstream third-party notices:

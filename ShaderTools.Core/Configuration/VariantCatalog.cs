@@ -62,6 +62,16 @@ public static class VariantCatalog
         ".hlsl", ".hlsli", ".fx", ".fxh",
     };
 
+    public const string FileName = ".shader-variants.json";
+
+    public static string FindProjectCatalog(string workspaceRoot, string? shaderFile)
+    {
+        if (string.IsNullOrEmpty(shaderFile)) { return Path.Combine(workspaceRoot, FileName); }
+        string catalog = ShaderConfiguration.FindProjectFile(workspaceRoot, shaderFile!, FileName);
+        if (File.Exists(catalog)) { return catalog; }
+        return Path.Combine(Path.GetDirectoryName(ShaderConfiguration.FindConfigurationPath(workspaceRoot, shaderFile!))!, FileName);
+    }
+
     public static IReadOnlyList<ShaderVariant> Load(string filePath, string workspaceRoot)
     {
         if (string.IsNullOrWhiteSpace(filePath))

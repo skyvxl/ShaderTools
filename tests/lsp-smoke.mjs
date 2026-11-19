@@ -265,7 +265,7 @@ class LspConnection {
     this.notifications = [];
     this.notificationWaiters = new Set();
     this.stderr = "";
-    this.serverPid = undefined;
+    this.serverPids = new Set();
     this.exitResult = undefined;
 
     this.child = spawn(command, args, {
@@ -290,8 +290,9 @@ class LspConnection {
     this.child.stderr.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       this.stderr = (this.stderr + text).slice(-64 * 1024);
-      const match = text.match(/shader-language-server[^\r\n]*\(PID (\d+)\)/i);
-      if (match) this.serverPid = Number(match[1]);
+      for (const match of this.stderr.matchAll(/shader-language-server[^\r\n]*\(PID (\d+)\)/gi)) {
+        this.serverPids.add(Number(match[1]));
+      }
     });
     this.child.once("error", (error) => {
       this.stderr += `${error.stack ?? error}\n`;
@@ -915,6 +916,304 @@ async function main() {
     assert.ok(workspaceSymbols?.some((symbol) => symbol.name === "computeLocal"), "computeLocal missing from workspace symbols");
   });
 
+  await runTest("large GLSL document with includes and branches answers interactive requests", async () => {
+    const largePath = path.join(shaderDirectory, "large.frag");
+    const functions = Array.from({ length: 120 }, (_, i) => `float helper${i}(float amount)\n{\n#if LARGE_ENABLED\n    return amount * 2.0;\n#else\n    return amount;\n#endif\n}\n`).join("\n");
+    const text = '#version 450\n#extension GL_GOOGLE_include_directive : require\n#include "shared ü.glsl"\nlayout(location = 0) out vec4 largeColor;\n' + functions + '\nvoid main() { largeColor = vec4(sharedColor(), helper119(1.0)); }\n';
+    writeFileSync(largePath, text);
+    openDocument(largePath, "shader-tools-glsl", 1, text);
+    const started = Date.now();
+    const [definition, signature, symbols] = await Promise.all([
+      connection.request("textDocument/definition", { textDocument: { uri: uriFor(largePath) }, position: positionAt(text, "sharedColor(),", 2) }),
+      connection.request("textDocument/signatureHelp", { textDocument: { uri: uriFor(largePath) }, position: positionAt(text, "helper119(1.0)", "helper119(".length), context: { triggerKind: 1, isRetrigger: false } }),
+      connection.request("textDocument/documentSymbol", { textDocument: { uri: uriFor(largePath) } }),
+    ]);
+    assert.ok(locationUris(definition).some(uri => decodeURIComponent(uri).toLowerCase() === decodeURIComponent(uriFor(sharedPath)).toLowerCase()));
+    assert.ok(signature?.signatures?.some(item => item.label.includes("helper119")));
+    assert.ok(symbols.some(item => item.name === "helper119"));
+    console.log(`INFO ${text.split("\n").length} GLSL lines: definition/signature/symbols completed in ${Date.now() - started} ms`);
+    closeDocument(largePath);
+  });
+
+  await runTest("include inspection uses the analyzed context and current unsaved document", async () => {
+    if (options.serverOnly) throw new SkipTest("inspection is provided by the Bridge");
+    const context = await connection.request("shaderTools/compilationContext", { textDocument: { uri: uriFor(featurePath) } });
+    assert.equal(context.documentVersion, 1);
+    const report = await connection.request("shaderTools/preprocessor", { textDocument: { uri: uriFor(featurePath) }, context });
+    assert.equal(report.version, 1);
+    assert.ok(report.includes.some(edge => edge.status === "resolved" && edge.target.toLowerCase() === sharedPath.toLowerCase()));
+    const staleContext = { ...context, documentVersion: 0 };
+    await assert.rejects(connection.request("shaderTools/preprocessor", { textDocument: { uri: uriFor(featurePath) }, context: staleContext }), /changed/);
+  });
+
+  await runTest("include diagnostics offer a version-checked configuration action", async () => {
+    if (options.serverOnly) throw new SkipTest("configuration action is provided by the Bridge");
+    const actionPath = path.join(shaderDirectory, "missing-include.frag");
+    const actionText = '#version 450\n#extension GL_GOOGLE_include_directive : require\n#include "unavailable-header.glsl"\nvoid main() {}\n';
+    writeFileSync(actionPath, actionText);
+    const uri = uriFor(actionPath);
+    const marker = connection.marker();
+    openDocument(actionPath, "shader-tools-glsl", 1, actionText);
+    await connection.waitForNotification("textDocument/publishDiagnostics", params => params.uri === uri && params.diagnostics.length > 0, marker);
+    const diagnostics = await pullDiagnostics(actionPath);
+    assert.ok(diagnostics.some(item => item.severity === 1 && item.range.start.line === 2));
+    const actions = await connection.request("textDocument/codeAction", { textDocument: { uri }, range: { start: { line: 2, character: 0 }, end: { line: 2, character: 35 } }, context: { diagnostics, only: ["quickfix"] } });
+    assert.equal(actions.length, 1);
+    assert.equal(actions[0].command.command, "shaderTools.openConfiguration");
+    const commandMarker = connection.marker();
+    await connection.request("workspace/executeCommand", actions[0].command);
+    const opened = await connection.waitForNotification("shaderTools/openConfiguration", () => true, commandMarker);
+    assert.equal(decodeURIComponent(opened.uri), decodeURIComponent(uriFor(configurationPath)));
+    connection.notify("textDocument/didChange", { textDocument: { uri, version: 2 }, contentChanges: [{ text: "#version 450\nvoid main() {}\n" }] });
+    await assert.rejects(connection.request("workspace/executeCommand", actions[0].command), /changed/);
+    closeDocument(actionPath);
+  });
+
+  await runTest("parent workspace resolves nested GLSL and HLSL project settings independently", async () => {
+    if (options.serverOnly) throw new SkipTest("configuration discovery is provided by the Bridge");
+    const projects = ["project A", "project B"].map(name => path.join(temporaryRoot, "examples", name));
+    const fixture = path.join(REPOSITORY_ROOT, "examples", "BasicShaders");
+    const files = [".shadertools.json", "include/colors.glsl", "include/colors.hlsli", "shaders/triangle.frag", "shaders/triangle.ps.hlsl"];
+    const openedDocuments = [];
+    try {
+      for (const project of projects) {
+        for (const file of files) {
+          const target = path.join(project, file);
+          mkdirSync(path.dirname(target), { recursive: true });
+          writeFileSync(target, readFileSync(path.join(fixture, file)));
+        }
+        if (project === projects[0]) {
+          const config = path.join(project, ".shadertools.json");
+          const settings = JSON.parse(readFileSync(config, "utf8"));
+          settings.includes.push("optional-not-created");
+          writeFileSync(config, JSON.stringify(settings));
+        }
+        for (const [file, language] of [["triangle.frag", "glsl"], ["triangle.ps.hlsl", "hlsl"]]) {
+          const source = path.join(project, "shaders", file);
+          openDocument(source, `shader-tools-${language}`, 1, readFileSync(source, "utf8"));
+          openedDocuments.push(source);
+        }
+      }
+      for (const source of openedDocuments) {
+        const project = path.dirname(path.dirname(source));
+        const context = await connection.request("shaderTools/compilationContext", { textDocument: { uri: uriFor(source) } });
+        assert.equal(context.configurationPath.toLowerCase(), path.join(project, ".shadertools.json").toLowerCase());
+        const expectedPaths = [project, path.join(project, "include")];
+        if (project === projects[0]) expectedPaths.push(path.join(project, "optional-not-created"));
+        assert.deepEqual(context.includes.map(value => value.toLowerCase()), expectedPaths.map(value => value.toLowerCase()));
+        assert.equal(context.defines.EXAMPLE_TINT, "1");
+        const diagnostics = await pullDiagnostics(source);
+        assert.ok(!diagnostics.some(item => item.severity === 1), JSON.stringify(diagnostics));
+        const hlsl = source.endsWith("hlsl");
+        const definition = await connection.request("textDocument/definition", {
+          textDocument: { uri: uriFor(source) },
+          position: positionAt(readFileSync(source, "utf8"), hlsl ? "ExampleTint(color)" : "exampleTint(vertexColor)", 3),
+        });
+        const header = uriFor(path.join(project, "include", hlsl ? "colors.hlsli" : "colors.glsl"));
+        assert.ok(locationUris(definition).some(uri => decodeURIComponent(uri).toLowerCase() === decodeURIComponent(header).toLowerCase()), JSON.stringify(definition));
+        const report = await connection.request("shaderTools/preprocessor", { textDocument: { uri: uriFor(source) }, context });
+        assert.equal(report.configuration, context.configurationPath);
+        assert.ok(report.includes.some(edge => edge.status === "resolved"));
+      }
+
+      const source = openedDocuments[0];
+      const childConfig = path.join(projects[0], ".shadertools.json");
+      const contextFor = () => connection.request("shaderTools/compilationContext", { textDocument: { uri: uriFor(source) } });
+      const before = await contextFor();
+      const childSettings = JSON.parse(readFileSync(childConfig, "utf8"));
+      childSettings.includes = ["../project B/include"];
+      writeFileSync(childConfig, JSON.stringify(childSettings));
+      connection.notify("workspace/didChangeConfiguration", { settings: {} });
+      const after = await contextFor();
+      assert.equal(after.documentVersion, 1);
+      assert.deepEqual(after.includes.map(value => value.toLowerCase()), [projects[0].toLowerCase(), path.join(projects[1], "include").toLowerCase()]);
+      await assert.rejects(connection.request("shaderTools/preprocessor", { textDocument: { uri: uriFor(source) }, context: before }), /changed/);
+
+      writeFileSync(childConfig, "{ broken");
+      connection.notify("workspace/didChangeConfiguration", { settings: {} });
+      assert.deepEqual((await contextFor()).includes, after.includes, "partial JSON save lost last valid document settings");
+      rmSync(childConfig);
+      connection.notify("workspace/didChangeConfiguration", { settings: {} });
+      const inherited = await contextFor();
+      assert.equal(inherited.configurationPath.toLowerCase(), configurationPath.toLowerCase());
+      assert.deepEqual(inherited.includes.map(value => value.toLowerCase()), [temporaryRoot.toLowerCase(), includeDirectory.toLowerCase()]);
+    } finally {
+      for (const source of openedDocuments) closeDocument(source);
+    }
+  });
+
+  await runTest("two projects analyze one unsaved header with independent defines and a selected variant", async () => {
+    if (options.serverOnly) throw new SkipTest("project context routing is provided by the Bridge");
+    const directory = path.join(temporaryRoot, "shared-header projects");
+    const common = path.join(directory, "shared");
+    mkdirSync(common, { recursive: true });
+    const header = path.join(common, "lighting.glsl");
+    const diskHeader = "#if PROJECT == 1\nfloat projectA() { return 1.0; }\n#else\nfloat projectB() { return 2.0; }\n#endif\n";
+    writeFileSync(header, diskHeader);
+    const roots = ["A", "B"].map((name, index) => {
+      const project = path.join(directory, name);
+      mkdirSync(project);
+      const config = path.join(project, ".shadertools.json");
+      writeFileSync(config, JSON.stringify({ includes: ["../shared"], defines: { PROJECT: String(index + 1) } }));
+      const source = path.join(project, "main.frag");
+      const text = '#version 450\n#extension GL_GOOGLE_include_directive : require\n#include "lighting.glsl"\nvoid main() { /* 💡 */ float value = project' + name + '(); }\n';
+      writeFileSync(source, text);
+      return { source, config, text, name };
+    });
+    const contextFor = file => connection.request("shaderTools/compilationContext", { textDocument: { uri: uriFor(file) } });
+    const definitionFor = (file, text, name) => connection.request("textDocument/definition", {
+      textDocument: { uri: uriFor(file) }, position: positionAt(text, name, 2),
+    });
+    for (const root of roots) openDocument(root.source, "shader-tools-glsl", 1, root.text);
+    openDocument(header, "shader-tools-glsl", 1, diskHeader);
+    try {
+      activeVariant = { url: uriFor(roots[0].source), shadingLanguage: "Glsl", entryPoint: "main", stage: "fragment",
+        defines: { PROJECT: "99", SELECTED_A: "1" }, includes: [] };
+      connection.notify("textDocument/didChangeShaderVariant", { shaderVariant: activeVariant });
+      const before = await contextFor(roots[0].source);
+      assert.equal(before.defines.PROJECT, "1");
+      assert.equal(before.defines.SELECTED_A, "1");
+      assert.equal((await contextFor(header)).configurationPath.toLowerCase(), roots[0].config.toLowerCase());
+      const b = await contextFor(roots[1].source);
+      assert.equal(b.defines.PROJECT, "2");
+      assert.equal(b.defines.SELECTED_A, undefined);
+
+      // An edit in the open shared header must reach both compiler sessions, even when a
+      // different session owns navigation for the header tab.
+      const headerEdit = "/* 🧭 ж */ float editorOnly() { return 3.0; }\n";
+      const end = positionAt(diskHeader, "#endif", "#endif\n".length);
+      connection.notify("textDocument/didChange", { textDocument: { uri: uriFor(header), version: 2 },
+        contentChanges: [{ range: { start: end, end }, text: headerEdit }] });
+      for (const root of roots) {
+        const edit = positionAt(root.text, "(); }", 2);
+        const addition = " + editorOnly()";
+        connection.notify("textDocument/didChange", { textDocument: { uri: uriFor(root.source), version: 2 },
+          contentChanges: [{ range: { start: edit, end: edit }, text: addition }] });
+        root.text = root.text.replace("(); }", "()" + addition + "; }");
+      }
+      for (const root of roots) {
+        const context = await contextFor(root.source);
+        assert.equal(context.documentVersion, 2);
+        assert.ok(context.dependencyTree.includes.some(edge => fileURLToPath(edge.url).toLowerCase() === header.toLowerCase()));
+        const diagnostics = await pullDiagnostics(root.source);
+        assert.ok(!diagnostics.some(item => item.severity === 1), root.name + ": " + JSON.stringify(diagnostics));
+        for (const name of ["project" + root.name, "editorOnly"]) {
+          const definition = await definitionFor(root.source, root.text, name);
+          assert.ok(locationUris(definition).some(target => fileURLToPath(target).toLowerCase() === header.toLowerCase()),
+            root.name + " definition of " + name + ": " + JSON.stringify(definition));
+          const locations = Array.isArray(definition) ? definition : [definition];
+          const location = locations.find(item => fileURLToPath(item.targetUri ?? item.uri).toLowerCase() === header.toLowerCase());
+          const range = location.targetSelectionRange ?? location.range;
+          assert.deepEqual(range.start, positionAt(diskHeader + headerEdit, name),
+            root.name + " UTF-16 target selection for " + name);
+        }
+      }
+      assert.equal((await contextFor(header)).documentVersion, 2);
+      assert.equal(readFileSync(header, "utf8"), diskHeader);
+    } finally {
+      connection.notify("textDocument/didChangeShaderVariant", { shaderVariant: null });
+      activeVariant = null;
+      closeDocument(header);
+      for (const root of roots) closeDocument(root.source);
+    }
+  });
+
+  await runTest("a newly opened project sees existing unsaved transitive includes", async () => {
+    if (options.serverOnly) throw new SkipTest("project context routing is provided by the Bridge");
+    const project = path.join(temporaryRoot, "opened last");
+    const shared = path.join(temporaryRoot, "edited first");
+    mkdirSync(project);
+    mkdirSync(shared);
+    writeFileSync(path.join(project, ".shadertools.json"), JSON.stringify({ includes: [shared] }));
+    writeFileSync(path.join(shared, ".shadertools.json"), JSON.stringify({ validate: false }));
+    const leaf = path.join(shared, "leaf.glsl");
+    const header = path.join(shared, "first.glsl");
+    const source = path.join(project, "main.frag");
+    const opened = [];
+    try {
+      for (const [file, disk, buffer] of [
+        [leaf, "float diskLeaf() { return 1.0; }\n", "float editedLeaf() { return 1.0; }\n"],
+        [header, "// no includes on disk\n", '#include "leaf.glsl"\n'],
+      ]) {
+        writeFileSync(file, disk);
+        openDocument(file, "shader-tools-glsl", 1, disk);
+        opened.push(file);
+        connection.notify("textDocument/didChange", { textDocument: { uri: uriFor(file), version: 2 }, contentChanges: [{ text: buffer }] });
+      }
+      const text = '#version 450\n#extension GL_GOOGLE_include_directive : require\n#include "first.glsl"\nvoid main() { float value = editedLeaf(); }\n';
+      writeFileSync(source, text);
+      openDocument(source, "shader-tools-glsl", 1, text);
+      opened.push(source);
+      const diagnostics = await pullDiagnostics(source);
+      assert.ok(!diagnostics.some(item => item.severity === 1), JSON.stringify(diagnostics));
+      const definition = await connection.request("textDocument/definition", {
+        textDocument: { uri: uriFor(source) }, position: positionAt(text, "editedLeaf", 2),
+      });
+      assert.ok(locationUris(definition).some(target => fileURLToPath(target).toLowerCase() === leaf.toLowerCase()), JSON.stringify(definition));
+    } finally {
+      for (const file of opened.reverse()) closeDocument(file);
+    }
+  });
+
+  await runTest("closed selected variant roots retain and reload nested configuration", async () => {
+    if (options.serverOnly) throw new SkipTest("configuration discovery is provided by the Bridge");
+    const directory = path.join(temporaryRoot, "nested variant");
+    const includes = path.join(directory, "include");
+    mkdirSync(includes, { recursive: true });
+    const config = path.join(directory, ".shadertools.json");
+    const source = path.join(directory, "main.frag");
+    const header = path.join(includes, "variant-shared.glsl");
+    const headerConfig = path.join(includes, ".shadertools.json");
+    writeFileSync(headerConfig, JSON.stringify({ defines: { ROOT_TINT: "0.25", HEADER_ONLY: "1" }, validate: false }));
+    writeFileSync(header, "vec4 variantColor() { return vec4(ROOT_TINT); }\n");
+    const text = '#version 450\n#extension GL_GOOGLE_include_directive : require\n#if USE_HEADER\n#include "variant-shared.glsl"\n#endif\nlayout(location = 0) out vec4 color;\nvoid main() {\n#if USE_HEADER\n color = variantColor();\n#else\n color = vec4(ROOT_TINT);\n#endif\n}\n';
+    writeFileSync(source, text);
+    const settings = { includes: ["include"], defines: { ROOT_TINT: "1.0", USE_HEADER: "1" } };
+    writeFileSync(config, JSON.stringify(settings));
+    const contextFor = () => connection.request("shaderTools/compilationContext", { textDocument: { uri: uriFor(source) } });
+    let sourceOpen = false;
+    let headerOpen = false;
+    try {
+      activeVariant = { url: uriFor(source), shadingLanguage: "Glsl", entryPoint: "main", stage: "fragment", defines: { SELECTED: "1" }, includes: [] };
+      connection.notify("textDocument/didChangeShaderVariant", { shaderVariant: activeVariant });
+      assert.equal((await contextFor()).configurationPath.toLowerCase(), config.toLowerCase(), "unopened variant root missed nested config");
+      openDocument(source, "shader-tools-glsl", 1, text);
+      sourceOpen = true;
+      openDocument(header, "shader-tools-glsl", 1, readFileSync(header, "utf8"));
+      headerOpen = true;
+      closeDocument(source);
+      sourceOpen = false;
+      const closed = await contextFor();
+      assert.equal(closed.configurationPath.toLowerCase(), config.toLowerCase());
+      assert.equal(closed.defines.ROOT_TINT, "1.0");
+      settings.defines.ROOT_TINT = "0.5";
+      writeFileSync(config, JSON.stringify(settings));
+      connection.notify("workspace/didChangeConfiguration", { settings: {} });
+      const reloaded = await contextFor();
+      assert.equal(reloaded.configurationPath.toLowerCase(), config.toLowerCase());
+      assert.equal(reloaded.defines.ROOT_TINT, "0.5");
+      assert.equal(reloaded.defines.SELECTED, "1");
+      assert.ok(!((await pullDiagnostics(header)).some(item => item.severity === 1)), "open header lost variant root settings");
+      settings.defines.USE_HEADER = "0";
+      writeFileSync(config, JSON.stringify(settings));
+      connection.notify("workspace/didChangeConfiguration", { settings: {} });
+      assert.equal((await contextFor()).defines.USE_HEADER, "0");
+      const headerContext = () => connection.request("shaderTools/compilationContext", { textDocument: { uri: uriFor(header) } });
+      const detached = await headerContext();
+      assert.equal(detached.configurationPath.toLowerCase(), headerConfig.toLowerCase(), "detached header retained variant root config");
+      assert.equal(detached.defines.ROOT_TINT, "0.25");
+      assert.equal(detached.defines.HEADER_ONLY, "1");
+      connection.notify("textDocument/didChangeShaderVariant", { shaderVariant: null });
+      activeVariant = null;
+      assert.equal((await headerContext()).configurationPath.toLowerCase(), headerConfig.toLowerCase());
+    } finally {
+      connection.notify("textDocument/didChangeShaderVariant", { shaderVariant: null });
+      activeVariant = null;
+      if (sourceOpen) closeDocument(source);
+      if (headerOpen) closeDocument(header);
+    }
+  });
+
   await runTest("folding ranges cover nested GLSL scopes", async () => {
     const ranges = await connection.request("textDocument/foldingRange", {
       textDocument: { uri: uriFor(featurePath) },
@@ -1050,19 +1349,56 @@ void main() {
       if (options.serverOnly) {
         connection.terminate();
         await connection.waitForExit();
-        console.log("INFO direct server required termination after protocol shutdown (upstream 1.4.3 limitation)");
+        console.log("INFO direct server required termination after protocol shutdown");
         return;
       }
       throw error;
     }
     assert.equal(exit.code, 0, `host exited with code ${exit.code}, signal ${exit.signal}`);
     if (!options.serverOnly) {
-      assert.ok(connection.serverPid, `bridge did not report its child PID on stderr:\n${connection.stderr}`);
-      assert.equal(isProcessAlive(connection.serverPid), false, `shader-language-server PID ${connection.serverPid} survived bridge shutdown`);
+      assert.ok(connection.serverPids.size > 0, `bridge did not report a child PID on stderr:\n${connection.stderr}`);
+      for (const pid of connection.serverPids) {
+        assert.equal(isProcessAlive(pid), false, `shader-language-server PID ${pid} survived bridge shutdown`);
+      }
     }
   });
 
-  await runTest("forced bridge termination kills server and active clang-format descendant", async () => {
+  await runTest("restart accepts a VS UTF-8 preamble and a workspace with a trailing separator", async () => {
+    if (options.serverOnly) throw new SkipTest("this tests VS-to-Bridge startup");
+    const workspace = temporaryRoot + path.sep;
+    const restarted = new LspConnection(options.bridge, ["--server", options.server, "--workspace", workspace], {
+      cwd: temporaryRoot, env: environment,
+    });
+    try {
+      // Visual Studio's StreamWriter can send its UTF-8 preamble before the first LSP header.
+      restarted.child.stdin.write(Buffer.from([0xef, 0xbb, 0xbf]));
+      const rootUri = uriFor(workspace);
+      const result = await restarted.request("initialize", {
+        processId: process.pid, rootPath: workspace, rootUri,
+        workspaceFolders: [{ uri: rootUri, name: "Reopened shader workspace" }], capabilities: {},
+      });
+      assert.ok(result.capabilities.documentSymbolProvider);
+      restarted.notify("initialized", {});
+      restarted.notify("textDocument/didOpen", {
+        textDocument: { uri: uriFor(featurePath), languageId: "shader-tools-glsl", version: 1, text: featureText },
+      });
+      const symbols = await restarted.request("textDocument/documentSymbol", { textDocument: { uri: uriFor(featurePath) } });
+      assert.ok(symbols.some(item => item.name === "computeLocal"));
+      assert.equal(await restarted.request("shutdown", null), null);
+      restarted.notify("exit", null);
+      restarted.child.stdin.end();
+      assert.equal((await restarted.waitForExit()).code, 0);
+      assert.ok(restarted.serverPids.size > 0);
+      for (const pid of restarted.serverPids) assert.equal(isProcessAlive(pid), false);
+    } finally {
+      if (!restarted.exitResult) {
+        restarted.terminate();
+        await restarted.waitForExit();
+      }
+    }
+  });
+
+  await runTest("forced bridge termination kills project servers and active clang-format descendant", async () => {
     if (options.serverOnly) throw new SkipTest("job containment belongs to the bridge");
     if (process.platform !== "win32") throw new SkipTest("Windows Job Objects are only available on Windows");
 
@@ -1103,7 +1439,6 @@ void main() {
       });
       assert.equal(initialize?.capabilities?.documentFormattingProvider, true, "blocking clang-format was not detected");
       forced.notify("initialized", {});
-      assert.ok(forced.serverPid, `bridge did not report its owned server PID:\n${forced.stderr}`);
 
       const formattingPath = path.join(shaderDirectory, "force kill formatting.frag.glsl");
       const formattingText = "#version 450\nvoid main(){vec4 value=vec4(1.0);}\n";
@@ -1116,22 +1451,32 @@ void main() {
           text: formattingText,
         },
       });
+      const secondProject = path.join(temporaryRoot, "force kill second project");
+      mkdirSync(secondProject);
+      writeFileSync(path.join(secondProject, ".shadertools.json"), JSON.stringify({ defines: { SECOND_PROJECT: "1" } }));
+      const secondFile = path.join(secondProject, "other.frag");
+      writeFileSync(secondFile, formattingText);
+      const secondUri = uriFor(secondFile);
+      forced.notify("textDocument/didOpen", { textDocument: { uri: secondUri, languageId: "shader-tools-glsl", version: 1, text: formattingText } });
+      const symbols = await forced.request("textDocument/documentSymbol", { textDocument: { uri: secondUri } });
+      assert.ok(symbols.some(symbol => symbol.name === "main"));
       const formattingRequest = forced.request("textDocument/formatting", {
         textDocument: { uri: uriFor(formattingPath) },
         options: { tabSize: 4, insertSpaces: true },
       }).catch(() => undefined);
 
       const formatterPid = await waitForPidMarker(formatterMarker, DIAGNOSTIC_TIMEOUT_MS);
-      assert.notEqual(formatterPid, forced.serverPid, "formatter PID unexpectedly equals server PID");
-      assert.equal(isProcessAlive(forced.serverPid), true, "owned server exited before forced bridge termination");
+      assert.ok(forced.serverPids.size >= 2, `expected PIDs for both project servers:\n${forced.stderr}`);
+      assert.ok(!forced.serverPids.has(formatterPid), "formatter PID unexpectedly equals a server PID");
+      for (const pid of forced.serverPids) assert.equal(isProcessAlive(pid), true, `project PID ${pid} already exited`);
       assert.equal(isProcessAlive(formatterPid), true, "blocking formatter exited before forced bridge termination");
 
-      const serverExit = waitForPidExit(forced.serverPid, 5_000);
+      const serverExits = [...forced.serverPids].map(pid => waitForPidExit(pid, 5_000));
       const formatterExit = waitForPidExit(formatterPid, 5_000);
       assert.equal(forced.child.kill(), true, `could not terminate owned bridge PID ${forced.child.pid}`);
       await forced.waitForExit(5_000);
-      await Promise.all([serverExit, formatterExit, formattingRequest]);
-      assert.equal(isProcessAlive(forced.serverPid), false, `server PID ${forced.serverPid} survived forced bridge termination`);
+      await Promise.all([...serverExits, formatterExit, formattingRequest]);
+      for (const pid of forced.serverPids) assert.equal(isProcessAlive(pid), false, `server PID ${pid} survived forced bridge termination`);
       assert.equal(isProcessAlive(formatterPid), false, `clang-format PID ${formatterPid} survived forced bridge termination`);
     } finally {
       if (!forced.exitResult) {
